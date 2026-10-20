@@ -24,6 +24,7 @@ import {
 	notifyUsersOfNewMessage,
 } from "@/lib/realtime/utils";
 import { scheduleAutoDraft } from "@/lib/agent/jobs/utils";
+import { quarantineRawEmail } from "@/lib/email/quarantine";
 
 export type InboundQueueMessage = {
 	from: string;
@@ -56,40 +57,43 @@ export async function processInboundMessage(
 	payload: InboundQueueMessage,
 ): Promise<void> {
 	const db = getDb(env);
+	// A delivered message owns its raw object even if routing later changes.
+	// Check before resolving today's route so replay cannot quarantine its body.
+	const [alreadyStored] = await db.select().from(messages)
+		.where(eq(messages.rawR2Key, payload.rawR2Key)).limit(1);
+	if (alreadyStored) {
+		try {
+			if (alreadyStored.mailboxId && Date.now() - alreadyStored.createdAt.getTime() < 30 * 60_000) {
+				await scheduleAutoDraft(env, { mailboxId: alreadyStored.mailboxId, sourceMessageId: alreadyStored.id, ownerUserId: alreadyStored.userId, sender: alreadyStored.fromAddr, headers: payload.headers, status: alreadyStored.status, folderId: alreadyStored.folderId, spamVerdict: alreadyStored.spamVerdict, spamAnalysisError: alreadyStored.spamAnalysisError });
+			}
+		} catch (error) { console.error("Auto-draft recovery failed", error); }
+		return;
+	}
 	// The sender is passed so that sender-based block rules resolve the same way here as they
 	// do in the Worker email handler.
 	const decision = await resolveInboundAddress(db, payload.to, payload.from);
 
 	if (!decision) {
-		console.warn(`No routing for inbound address: ${payload.to}`);
+		await quarantineRawEmail(env, payload.rawR2Key, "no_route");
 		return;
 	}
 
 	if (decision.action === "reject") {
-		console.warn(`Rejected inbound: ${payload.to}`);
+		await quarantineRawEmail(env, payload.rawR2Key, "rejected");
 		return;
 	}
 
 	// A forward decision only reaches the queue when the rule keeps a copy; without a
 	// destination mailbox there is nothing to store.
 	if (decision.action === "forward" && !decision.keepCopy) {
-		console.info(`Forward ${payload.to} -> ${decision.forwardTo}`);
+		await quarantineRawEmail(env, payload.rawR2Key, "forward_without_mailbox");
 		return;
 	}
 
-	if (!decision.mailbox) return;
-	const [stored] = await db.select({ id: messages.id }).from(messages).where(and(
-		eq(messages.mailboxId, decision.mailbox.mailboxId),
-		eq(messages.rawR2Key, payload.rawR2Key),
-	)).limit(1);
-	if (stored) {
-		try {
-			const [existing] = await db.select().from(messages).where(eq(messages.id, stored.id)).limit(1);
-			if (existing && Date.now() - existing.createdAt.getTime() < 30 * 60_000) await scheduleAutoDraft(env, { mailboxId: decision.mailbox.mailboxId, sourceMessageId: existing.id, ownerUserId: decision.mailbox.userId, sender: existing.fromAddr, headers: payload.headers, status: existing.status, folderId: existing.folderId, spamVerdict: existing.spamVerdict, spamAnalysisError: existing.spamAnalysisError });
-		} catch (error) { console.error("Auto-draft recovery failed", error); }
+	if (!decision.mailbox) {
+		await quarantineRawEmail(env, payload.rawR2Key, "missing_mailbox");
 		return;
 	}
-
 	const raw = await env.BUCKET.get(payload.rawR2Key);
 	if (!raw) {
 		console.error(`Missing R2 object: ${payload.rawR2Key}`);

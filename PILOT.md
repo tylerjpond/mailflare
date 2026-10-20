@@ -74,3 +74,23 @@ Review any nonliteral import manually and record the artifact hash. Current
 vinext has one fixed React development-renderer import, unreachable under its
 production runtime check and unrelated to request or email input. This does not
 justify allowing arbitrary future dynamic imports.
+
+## Undeliverable raw mail
+
+Queue items with no route, a rejection, or no storage mailbox move their raw MIME
+to `quarantine/inbound/...` before acknowledgment. Metadata records the reason,
+original key and quarantine time. Storage errors throw for retry; a repeated
+delivery neither creates another copy nor refreshes its expiry. Already-delivered
+raw objects are checked before current routing rules, preserving delivered mail
+if rules later change.
+
+Configure a storage lifecycle rule **only for `quarantine/`**, with a 30-day
+expiry for the synthetic pilot. Review quarantined items before expiry; no
+automatic re-delivery occurs. Normal support messages retain their separate
+case-based retention policy. Quarantine is an operator-visible storage prefix,
+not an inbox folder. Retry exhaustion and enqueue failures still require queue
+and storage operational monitoring; this does not claim a general orphan sweep.
+
+Run `node --test tests/raw-quarantine.test.mjs`. Test duplicate processing on the
+hosted queues and restore historical data only into disconnected recovery
+resources; do not roll the active mailbox back.
