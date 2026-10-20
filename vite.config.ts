@@ -16,6 +16,7 @@ export default defineConfig({
 	plugins: lazyPlugins(() => [
 		vinext({ images: { optimizer: imagesOptimizer() } }),
 		cloudflare({
+			configPath: process.env.MAILFLARE_WRANGLER_CONFIG || "./wrangler.jsonc",
 			remoteBindings: process.env.CLOUDFLARE_REMOTE_BINDINGS === "true",
 			viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
 		}),

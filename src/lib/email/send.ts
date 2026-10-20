@@ -252,7 +252,8 @@ async function deliverEmail(env: CloudflareEnv, delivery: PreparedDelivery): Pro
 			mailboxId,
 			messageId,
 			action: "email.send",
-			metadata: { to: toAddr, cc: cc.length ? joinEmailAddressList(cc) : undefined, subject: input.subject },
+			// The retained message owns support history; the audit only needs identity/action.
+			metadata: {},
 		});
 	} catch (err) {
 		const error = err instanceof Error ? err.message : "Send failed";
@@ -264,6 +265,11 @@ async function deliverEmail(env: CloudflareEnv, delivery: PreparedDelivery): Pro
 		await dispatchWebhooks(env, input.userId, "message.failed", { messageId, error });
 		throw err;
 	}
+	// Keep uncertain/failed payloads for reconciliation. Cleanup is outside the
+	// delivery catch: a failed/ambiguous cleanup must never demote a sent job.
+	// The original message remains intact for support history.
+	await db.update(outboundJobs).set({ payload: "{}" })
+		.where(and(eq(outboundJobs.id, jobId), eq(outboundJobs.status, "sent")));
 }
 
 export type OutboundQueueMessage = {

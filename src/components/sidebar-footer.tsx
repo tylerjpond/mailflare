@@ -48,6 +48,10 @@ export function PoweredBy({ className = "px-1" }: { className?: string }) {
         >
           Mailflare v{packageJson.version}
         </a>
+        {" · "}
+        <a href="https://github.com/tylerjpond/mailflare/tree/codex/synthetic-pilot" target="_blank" rel="noreferrer" className="hover:underline">
+          Pilot source
+        </a>
       </p>
 	);
 }
