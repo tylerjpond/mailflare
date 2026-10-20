@@ -49,6 +49,8 @@ def main():
         producer["queue"] = name + "-" + producer["queue"].removeprefix("mailflare-")
     for consumer in config["queues"]["consumers"]:
         consumer["queue"] = name + "-" + consumer["queue"].removeprefix("mailflare-")
+        # Provision each consumer's failed queue with 14-day retention first.
+        consumer["dead_letter_queue"] = consumer["queue"] + "-failed"
     destination = checkout / "wrangler.pilot.jsonc"
     if destination.exists():
         raise FileExistsError("Review/remove the previous generated config explicitly")
