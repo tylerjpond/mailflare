@@ -24,6 +24,9 @@ const INTERNAL_TABLE_PATTERNS = ["sqlite_%", "_cf%", "messages_fts%"];
  * restored, so it is neither exported nor part of the coverage check.
  */
 const INTERNAL_TABLES = [
+	// Isolated pilot operations exports this ledger separately with its encrypted
+	// snapshots. Ordinary app restore must never roll current deletion evidence back.
+	"pilot_recovery_deletions",
 	"d1_migrations",
 	// JMAP state counters, also derived: the jmap_messages_* triggers on
 	// `messages` insert and bump a row per mailbox as messages are restored.
